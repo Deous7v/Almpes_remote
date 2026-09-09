@@ -1,0 +1,109 @@
+name: Compilar Almpes (Definitivo)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - name: 1. Descargar codigo base
+        uses: actions/checkout@v4
+
+      - name: 2. Reemplazar Icono y Logo Oficiales
+        shell: pwsh
+        run: |
+          Write-Host "-> Reemplazando iconos oficiales por los de Almpes..."
+          if (Test-Path "mi_icono.ico") {
+              Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
+              Copy-Item -Path "mi_icono.ico" -Destination "windows/runner/resources/app_icon.ico" -Force
+              Write-Host "Icono (.ico) reemplazado con exito."
+          } else {
+              Write-Host "No se encontro 'mi_icono.ico'. Usando el original."
+          }
+          
+          if (Test-Path "mi_logo.png") {
+              Copy-Item -Path "mi_logo.png" -Destination "res/logo.png" -Force
+              Copy-Item -Path "mi_logo.png" -Destination "res/128x128.png" -Force
+              Copy-Item -Path "mi_logo.png" -Destination "res/32x32.png" -Force
+              Write-Host "Logo (.png) reemplazado con exito."
+          } else {
+              Write-Host "No se encontro 'mi_logo.png'. Usando el original."
+          }
+
+      - name: 3. Magia Automatica (Colores, Titulo e IPs)
+        shell: pwsh
+        run: |
+          Write-Host "-> Cambiando colores a Rojo en la interfaz..."
+          Get-ChildItem -Path flutter/lib -Recurse -Filter *.dart | ForEach-Object {
+              $c = Get-Content $_.FullName -Raw
+              if ($c -match 'Colors\.blue') {
+                  $c = $c -replace 'Colors\.blue', 'Colors.red'
+                  $c = $c -replace 'blueAccent', 'redAccent'
+                  Set-Content -Path $_.FullName -Value $c
+              }
+          }
+          
+          Write-Host "-> Cambiando el Titulo de la Ventana a Almpes..."
+          $winRunner = "flutter/windows/runner/main.cpp"
+          if (Test-Path $winRunner) {
+              $c = Get-Content $winRunner -Raw
+              $c = $c -replace 'window\.Create\(L"RustDesk",', 'window.Create(L"Almpes",'
+              Set-Content -Path $winRunner -Value $c
+          }
+          
+          Write-Host "-> Inyectando Servidor y Key..."
+          $serverConfig = "flutter/lib/models/server_config.dart"
+          if (Test-Path $serverConfig) {
+              $c = Get-Content $serverConfig -Raw
+              $c = $c -replace "custom-rendezvous-server', ''", "custom-rendezvous-server', '103.195.100.225'"
+              $c = $c -replace "key', ''", "key', 'pLGeVp6JeORPB9KTHogPGnMYAH6Qs6blBRA+QS'"
+              Set-Content -Path $serverConfig -Value $c
+          }
+
+      - name: 4. Cargar Caché de VCPKG (Para ahorrar tiempo)
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg
+          key: vcpkg-windows-rustdesk-cache
+
+      - name: 5. Instalar Motor VCPKG y Codecs (Solo si no hay caché)
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "-> Compilando VCPKG desde cero. Esto tomara tiempo..."
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          git checkout 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          .\bootstrap-vcpkg.bat
+          .\vcpkg.exe install --triplet x64-windows-static --x-install-root="$env:GITHUB_WORKSPACE\vcpkg\installed"
+
+      - name: 6. Configurar Rust Oficial (1.75.0)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.75.0
+
+      - name: 7. Configurar Flutter Oficial
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.24.5'
+          architecture: x64
+
+      - name: 8. Compilar Almpes Nativo
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
+          python ./build.py --flutter
+          
+          if (Test-Path "target/release/rustdesk.exe") {
+              Rename-Item "target/release/rustdesk.exe" "Almpes.exe"
+          }
+
+      - name: 9. Entregar Ejecutable Final
+        uses: actions/upload-artifact@v4
+        with:
+          name: Almpes-Ejecutable-Rojo
+          path: target/release/Almpes.exe
