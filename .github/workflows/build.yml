@@ -1,4 +1,4 @@
-name: Compilar Almpes (Definitivo)
+name: Compilar Almpes (Windows)
 
 on:
   workflow_dispatch:
@@ -12,17 +12,16 @@ jobs:
         with:
           submodules: recursive
 
-      - name: 2. Instalar LLVM (Requisito vital para el puente Rust-Flutter)
+      - name: 2. Preparar Entorno Windows (LLVM)
         shell: pwsh
         run: |
-          Write-Host "-> Instalando LLVM..."
           choco install llvm -y
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: 3. Reemplazar Icono y Logo Oficiales
+      - name: 3. Inyectar Identidad Almpes (Logo, Color, Servidor y Clave)
         shell: pwsh
         run: |
-          Write-Host "-> Reemplazando iconos oficiales por los de Almpes..."
+          # 1. Logos
           if (Test-Path "mi_icono.ico") {
               Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
               Copy-Item -Path "mi_icono.ico" -Destination "flutter/windows/runner/resources/app_icon.ico" -Force
@@ -32,11 +31,8 @@ jobs:
               Copy-Item -Path "mi_logo.png" -Destination "res/128x128.png" -Force
               Copy-Item -Path "mi_logo.png" -Destination "res/32x32.png" -Force
           }
-
-      - name: 4. Magia Automatica (Colores, Titulo e IPs)
-        shell: pwsh
-        run: |
-          Write-Host "-> Cambiando colores a Rojo..."
+          
+          # 2. Colores a Rojo
           Get-ChildItem -Path flutter/lib -Recurse -Filter *.dart | ForEach-Object {
               $c = Get-Content $_.FullName -Raw
               if ($c -match 'Colors\.blue') {
@@ -46,7 +42,7 @@ jobs:
               }
           }
           
-          Write-Host "-> Cambiando el Titulo de la Ventana a Almpes..."
+          # 3. Nombre de la Ventana
           $winRunner = "flutter/windows/runner/main.cpp"
           if (Test-Path $winRunner) {
               $c = Get-Content $winRunner -Raw
@@ -54,73 +50,75 @@ jobs:
               Set-Content -Path $winRunner -Value $c -Encoding UTF8
           }
           
-          Write-Host "-> Inyectando Servidor y Key..."
+          # 4. Servidor y Clave COMPLETA
           $serverConfig = "flutter/lib/models/server_config.dart"
           if (Test-Path $serverConfig) {
               $c = Get-Content $serverConfig -Raw
               $c = $c -replace "custom-rendezvous-server', ''", "custom-rendezvous-server', '103.195.100.225'"
-              $c = $c -replace "key', ''", "key', 'pLGeVp6JeORPB9KTHogPGnMYAH6Qs6blBRA+QS'"
+              $c = $c -replace "key', ''", "key', 'pLGeVp6JeORPB9KTHogPGnMYAH6Qs6blBRA+QSgV3mA='"
               Set-Content -Path $serverConfig -Value $c -Encoding UTF8
           }
 
-      - name: 5. Cargar Caché de VCPKG
-        id: vcpkg-cache
-        uses: actions/cache@v4
+      - name: 4. Restaurar Caché de C++ (VCPKG)
+        id: cache-vcpkg
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg
-          key: vcpkg-windows-rustdesk-cache
+          key: vcpkg-windows-almpes-definitivo
 
-      - name: 6. Instalar Motor VCPKG y Codecs
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+      - name: 5. Instalar Motor VCPKG (Tomará 40 min por ÚLTIMA vez)
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          Write-Host "-> Compilando VCPKG..."
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
           git checkout 9e593bb18ea69cc5095e012465dcd675a822ed0d
           .\bootstrap-vcpkg.bat
           .\vcpkg.exe install --triplet x64-windows-static --x-install-root="$env:GITHUB_WORKSPACE\vcpkg\installed"
 
-      - name: 7. Configurar Rust Oficial y Rustfmt (La Solucion)
+      - name: 6. FORZAR Guardado de Caché (Para asegurar que no se pierda)
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg
+          key: vcpkg-windows-almpes-definitivo
+
+      - name: 7. Configurar Rust (Con la solucion de Rustfmt) y Flutter
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.75.0
           components: rustfmt
-
-      - name: 8. Configurar Flutter Oficial (3.24.5)
-        uses: subosito/flutter-action@v2
+          
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           flutter-version: '3.24.5'
           architecture: x64
 
-      - name: 9. Compilar Almpes Nativo
+      - name: 8. Ensamblar Almpes
         env:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         shell: pwsh
         run: |
-          Write-Host "-> Instalando Generador de Puente..."
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
           
-          Write-Host "-> Construyendo el Puente Rust-Flutter..."
+          # Agregar herramienta al PATH y generar el puente
           $env:PATH += ";$HOME\.cargo\bin"
           flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
           
-          Write-Host "-> Preparando dependencias de Flutter..."
+          # Bajar dependencias y compilar
           cd flutter
           flutter pub get
           cd ..
-          
-          Write-Host "-> Iniciando compilacion Total..."
           python ./build.py --flutter
           
-          Write-Host "-> Preparando ejecutable..."
-          $flutterExe = "flutter/build/windows/x64/runner/Release/rustdesk.exe"
-          if (Test-Path $flutterExe) {
-              Rename-Item $flutterExe "Almpes.exe"
+          # Renombrar archivo final
+          $exePath = "flutter/build/windows/x64/runner/Release/rustdesk.exe"
+          if (Test-Path $exePath) {
+              Rename-Item $exePath "Almpes.exe"
           }
 
-      - name: 10. Entregar Ejecutable Final (Carpeta Completa)
+      - name: 9. Entregar Ejecutable Final (Carpeta Completa)
         uses: actions/upload-artifact@v4
         with:
           name: Almpes-Windows-Release
