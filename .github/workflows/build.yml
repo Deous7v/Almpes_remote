@@ -21,7 +21,7 @@ jobs:
       - name: 3. Inyectar Identidad Almpes (Logo, Color, Servidor y Clave)
         shell: pwsh
         run: |
-          # 1. Logos
+          # 1. Logos (Asegurate de subirlos a tu GitHub primero)
           if (Test-Path "mi_icono.ico") {
               Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
               Copy-Item -Path "mi_icono.ico" -Destination "flutter/windows/runner/resources/app_icon.ico" -Force
@@ -66,7 +66,7 @@ jobs:
           path: vcpkg
           key: vcpkg-windows-almpes-definitivo
 
-      - name: 5. Instalar Motor VCPKG (Se salta por Cache)
+      - name: 5. Instalar Motor VCPKG (Se salta porque ya hay cache)
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -100,12 +100,23 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         shell: pwsh
         run: |
+          # Usamos la version exacta 1.82.6
+          cargo install flutter_rust_bridge_codegen --version 1.82.6 --features "uuid" --locked
+          
+          Write-Host "-> Generando Puente..."
+          $env:PATH += ";$HOME\.cargo\bin"
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h
+          
+          Write-Host "-> Purgando las 5 funciones falsas (dummy code) de la herramienta..."
+          $bridgeFile = "src/bridge_generated.rs"
+          $lines = Get-Content $bridgeFile
+          $cleanLines = $lines | Where-Object { $_ -notmatch 'panic!\("dummy code"\)' }
+          Set-Content -Path $bridgeFile -Value $cleanLines -Encoding UTF8
+          
           Write-Host "-> Ensamblando Programa Completo..."
           cd flutter
           flutter pub get
           cd ..
-          
-          # ¡Dejamos que el script oficial haga todo sin interferir!
           python ./build.py --flutter
           
           $exePath = "flutter/build/windows/x64/runner/Release/rustdesk.exe"
