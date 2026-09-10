@@ -106,7 +106,8 @@ jobs:
           $env:PATH += ";$HOME\.cargo\bin"
           flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
           
-          Write-Host "-> Parcheando el bug de Dart_Handle (Al final del archivo)..."
+          Write-Host "-> Limpiando duplicados y aplicando parche Dart_Handle..."
+          git checkout src/bridge_generated.rs
           $bridgeFile = "src/bridge_generated.rs"
           Add-Content -Path $bridgeFile -Value "`ntype Dart_Handle = *mut u8;"
           
