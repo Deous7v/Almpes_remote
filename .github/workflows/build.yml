@@ -21,7 +21,7 @@ jobs:
       - name: 3. Inyectar Identidad Almpes (Logo, Color, Servidor y Clave)
         shell: pwsh
         run: |
-          # 1. Logos
+          # 1. Logos (Asegurate de haberlos subido a tu repo)
           if (Test-Path "mi_icono.ico") {
               Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
               Copy-Item -Path "mi_icono.ico" -Destination "flutter/windows/runner/resources/app_icon.ico" -Force
@@ -66,7 +66,7 @@ jobs:
           path: vcpkg
           key: vcpkg-windows-almpes-definitivo
 
-      - name: 5. Instalar Motor VCPKG (Tomará 40 min por ÚLTIMA vez)
+      - name: 5. Instalar Motor VCPKG (Se saltara porque el cache ya guardó)
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -76,7 +76,7 @@ jobs:
           .\bootstrap-vcpkg.bat
           .\vcpkg.exe install --triplet x64-windows-static --x-install-root="$env:GITHUB_WORKSPACE\vcpkg\installed"
 
-      - name: 6. FORZAR Guardado de Caché (Para asegurar que no se pierda)
+      - name: 6. FORZAR Guardado de Caché
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
@@ -102,23 +102,22 @@ jobs:
         run: |
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
           
-          # Generar el puente para Flutter
           Write-Host "-> Generando Puente..."
           $env:PATH += ";$HOME\.cargo\bin"
-          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
           
-          # TRUCO NINJA: Restaurar el archivo original de Rust para evitar el error de Dart_Handle
-          Write-Host "-> Restaurando codigo Rust original..."
-          git checkout src/bridge_generated.rs
+          Write-Host "-> Parcheando el bug de Dart_Handle..."
+          $bridgeFile = "src/bridge_generated.rs"
+          $bridgeCode = Get-Content $bridgeFile -Raw
+          $bridgeCode = "type Dart_Handle = *mut u8;`n" + $bridgeCode
+          Set-Content -Path $bridgeFile -Value $bridgeCode -Encoding UTF8
           
-          # Bajar dependencias y compilar
           Write-Host "-> Ensamblando Programa Completo..."
           cd flutter
           flutter pub get
           cd ..
           python ./build.py --flutter
           
-          # Renombrar archivo final
           $exePath = "flutter/build/windows/x64/runner/Release/rustdesk.exe"
           if (Test-Path $exePath) {
               Rename-Item $exePath "Almpes.exe"
