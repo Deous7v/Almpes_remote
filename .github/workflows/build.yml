@@ -21,7 +21,7 @@ jobs:
       - name: 3. Inyectar Identidad Almpes (Logo, Color, Servidor y Clave)
         shell: pwsh
         run: |
-          # 1. Logos (Recuerda tener mi_icono.ico y mi_logo.png en tu repo)
+          # 1. Logos
           if (Test-Path "mi_icono.ico") {
               Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
               Copy-Item -Path "mi_icono.ico" -Destination "flutter/windows/runner/resources/app_icon.ico" -Force
@@ -32,12 +32,13 @@ jobs:
               Copy-Item -Path "mi_logo.png" -Destination "res/32x32.png" -Force
           }
           
-          # 2. Colores a Rojo
+          # 2. Colores a Rojo (CORREGIDO para no romper los grises)
           Get-ChildItem -Path flutter/lib -Recurse -Filter *.dart | ForEach-Object {
               $c = Get-Content $_.FullName -Raw
-              if ($c -match 'Colors\.blue') {
-                  $c = $c -replace 'Colors\.blue', 'Colors.red'
-                  $c = $c -replace 'blueAccent', 'redAccent'
+              if ($c -match 'Colors\.blue\b' -or $c -match 'blueAccent\b') {
+                  $c = $c -replace 'Colors\.blue\b', 'Colors.red'
+                  $c = $c -replace 'Colors\.blueAccent\b', 'Colors.redAccent'
+                  $c = $c -replace 'blueAccent\b', 'redAccent'
                   Set-Content -Path $_.FullName -Value $c -Encoding UTF8
               }
           }
@@ -66,7 +67,7 @@ jobs:
           path: vcpkg
           key: vcpkg-windows-almpes-definitivo
 
-      - name: 5. Instalar Motor VCPKG (Se salta porque ya hay cache)
+      - name: 5. Instalar Motor VCPKG (Se salta por Cache)
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -100,20 +101,23 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         shell: pwsh
         run: |
-          # Regresamos a la version 1.80.1 para evitar el error de cargo-expand
+          Write-Host "-> Instalando Generador..."
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
           
           Write-Host "-> Generando Puente..."
-          $env:PATH += ";$HOME\.cargo\bin"
-          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
+          $FRB = "$HOME\.cargo\bin\flutter_rust_bridge_codegen.exe"
+          & $FRB --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
           
-          Write-Host "-> Purgando las funciones duplicadas (dummy code)..."
+          Write-Host "-> Purgando codigo basura (dummy code)..."
           $bridgeFile = "src/bridge_generated.rs"
           if (Test-Path $bridgeFile) {
               $lines = Get-Content $bridgeFile
               $cleanLines = $lines | Where-Object { $_ -notmatch 'panic!\("dummy code"\)' }
               Set-Content -Path $bridgeFile -Value $cleanLines -Encoding UTF8
-              Write-Host "Purga completada con exito."
+              Write-Host "Purga exitosa."
+          } else {
+              Write-Error "Fallo critico: No se encontro el puente generado."
+              exit 1
           }
           
           Write-Host "-> Ensamblando Programa Completo..."
