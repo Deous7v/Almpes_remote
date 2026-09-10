@@ -12,37 +12,37 @@ jobs:
         with:
           submodules: recursive
 
-      - name: 2. Reemplazar Icono y Logo Oficiales
+      - name: 2. Instalar LLVM (Requisito vital para el puente Rust-Flutter)
+        shell: pwsh
+        run: |
+          Write-Host "-> Instalando LLVM..."
+          choco install llvm -y
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: 3. Reemplazar Icono y Logo Oficiales
         shell: pwsh
         run: |
           Write-Host "-> Reemplazando iconos oficiales por los de Almpes..."
           if (Test-Path "mi_icono.ico") {
               Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
               Copy-Item -Path "mi_icono.ico" -Destination "flutter/windows/runner/resources/app_icon.ico" -Force
-              Write-Host "Icono (.ico) reemplazado con exito."
-          } else {
-              Write-Host "No se encontro 'mi_icono.ico'. Usando el original."
           }
-          
           if (Test-Path "mi_logo.png") {
               Copy-Item -Path "mi_logo.png" -Destination "res/logo.png" -Force
               Copy-Item -Path "mi_logo.png" -Destination "res/128x128.png" -Force
               Copy-Item -Path "mi_logo.png" -Destination "res/32x32.png" -Force
-              Write-Host "Logo (.png) reemplazado con exito."
-          } else {
-              Write-Host "No se encontro 'mi_logo.png'. Usando el original."
           }
 
-      - name: 3. Magia Automatica (Colores, Titulo e IPs)
+      - name: 4. Magia Automatica (Colores, Titulo e IPs)
         shell: pwsh
         run: |
-          Write-Host "-> Cambiando colores a Rojo en la interfaz..."
+          Write-Host "-> Cambiando colores a Rojo..."
           Get-ChildItem -Path flutter/lib -Recurse -Filter *.dart | ForEach-Object {
               $c = Get-Content $_.FullName -Raw
               if ($c -match 'Colors\.blue') {
                   $c = $c -replace 'Colors\.blue', 'Colors.red'
                   $c = $c -replace 'blueAccent', 'redAccent'
-                  Set-Content -Path $_.FullName -Value $c
+                  Set-Content -Path $_.FullName -Value $c -Encoding UTF8
               }
           }
           
@@ -51,7 +51,7 @@ jobs:
           if (Test-Path $winRunner) {
               $c = Get-Content $winRunner -Raw
               $c = $c -replace 'window\.Create\(L"RustDesk",', 'window.Create(L"Almpes",'
-              Set-Content -Path $winRunner -Value $c
+              Set-Content -Path $winRunner -Value $c -Encoding UTF8
           }
           
           Write-Host "-> Inyectando Servidor y Key..."
@@ -60,17 +60,17 @@ jobs:
               $c = Get-Content $serverConfig -Raw
               $c = $c -replace "custom-rendezvous-server', ''", "custom-rendezvous-server', '103.195.100.225'"
               $c = $c -replace "key', ''", "key', 'pLGeVp6JeORPB9KTHogPGnMYAH6Qs6blBRA+QS'"
-              Set-Content -Path $serverConfig -Value $c
+              Set-Content -Path $serverConfig -Value $c -Encoding UTF8
           }
 
-      - name: 4. Cargar Caché de VCPKG
+      - name: 5. Cargar Caché de VCPKG
         id: vcpkg-cache
         uses: actions/cache@v4
         with:
           path: vcpkg
           key: vcpkg-windows-rustdesk-cache
 
-      - name: 5. Instalar Motor VCPKG y Codecs
+      - name: 6. Instalar Motor VCPKG y Codecs
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -81,43 +81,34 @@ jobs:
           .\bootstrap-vcpkg.bat
           .\vcpkg.exe install --triplet x64-windows-static --x-install-root="$env:GITHUB_WORKSPACE\vcpkg\installed"
 
-      - name: 6. Configurar Rust Oficial (1.75.0)
+      - name: 7. Configurar Rust Oficial (1.75.0)
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.75.0
 
-      - name: 7. Configurar Flutter Oficial (3.24.5)
+      - name: 8. Configurar Flutter Oficial (3.24.5)
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           flutter-version: '3.24.5'
           architecture: x64
 
-      - name: 8. Generar Puente y Compilar Almpes Nativo
+      - name: 9. Compilar Almpes Nativo
         env:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         shell: pwsh
         run: |
-          Write-Host "-> Instalando Generador de Puente..."
-          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
-          
-          Write-Host "-> Construyendo el Puente Rust-Flutter..."
-          & "$env:USERPROFILE\.cargo\bin\flutter_rust_bridge_codegen.exe" --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
-          
-          Write-Host "-> Preparando dependencias de Flutter..."
-          cd flutter
-          flutter pub get
-          cd ..
-          
-          Write-Host "-> Compilando EXE..."
+          Write-Host "-> Iniciando compilacion Total..."
           python ./build.py --flutter
           
-          if (Test-Path "target/release/rustdesk.exe") {
-              Rename-Item "target/release/rustdesk.exe" "Almpes.exe"
+          Write-Host "-> Preparando ejecutable..."
+          $flutterExe = "flutter/build/windows/x64/runner/Release/rustdesk.exe"
+          if (Test-Path $flutterExe) {
+              Rename-Item $flutterExe "Almpes.exe"
           }
 
-      - name: 9. Entregar Ejecutable Final
+      - name: 10. Entregar Ejecutable Final (Carpeta Completa)
         uses: actions/upload-artifact@v4
         with:
-          name: Almpes-Ejecutable-Rojo
-          path: target/release/Almpes.exe
+          name: Almpes-Windows-Release
+          path: flutter/build/windows/x64/runner/Release/
