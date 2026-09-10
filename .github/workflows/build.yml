@@ -98,6 +98,18 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         shell: pwsh
         run: |
+          Write-Host "-> Instalando Generador de Puente..."
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
+          
+          Write-Host "-> Construyendo el Puente Rust-Flutter..."
+          $codegen = "$HOME\.cargo\bin\flutter_rust_bridge_codegen.exe"
+          & $codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h
+          
+          Write-Host "-> Preparando dependencias de Flutter..."
+          cd flutter
+          flutter pub get
+          cd ..
+          
           Write-Host "-> Iniciando compilacion Total..."
           python ./build.py --flutter
           
