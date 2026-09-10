@@ -21,7 +21,7 @@ jobs:
       - name: 3. Inyectar Identidad Almpes (Logo, Color, Servidor y Clave)
         shell: pwsh
         run: |
-          # 1. Logos (Asegurate de haberlos subido a tu repo)
+          # 1. Logos
           if (Test-Path "mi_icono.ico") {
               Copy-Item -Path "mi_icono.ico" -Destination "res/icon.ico" -Force
               Copy-Item -Path "mi_icono.ico" -Destination "flutter/windows/runner/resources/app_icon.ico" -Force
@@ -66,7 +66,7 @@ jobs:
           path: vcpkg
           key: vcpkg-windows-almpes-definitivo
 
-      - name: 5. Instalar Motor VCPKG (Se saltara porque el cache ya guardó)
+      - name: 5. Instalar Motor VCPKG
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -106,11 +106,9 @@ jobs:
           $env:PATH += ";$HOME\.cargo\bin"
           flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h --rust-output ./src/bridge_generated.rs
           
-          Write-Host "-> Parcheando el bug de Dart_Handle..."
+          Write-Host "-> Parcheando el bug de Dart_Handle (Al final del archivo)..."
           $bridgeFile = "src/bridge_generated.rs"
-          $bridgeCode = Get-Content $bridgeFile -Raw
-          $bridgeCode = "type Dart_Handle = *mut u8;`n" + $bridgeCode
-          Set-Content -Path $bridgeFile -Value $bridgeCode -Encoding UTF8
+          Add-Content -Path $bridgeFile -Value "`ntype Dart_Handle = *mut u8;"
           
           Write-Host "-> Ensamblando Programa Completo..."
           cd flutter
